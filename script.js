@@ -43,16 +43,28 @@ socket.onmessage = async (event) => {
 };
 
 // CONFIGURAR MICROFONE
-navigator.mediaDevices.getUserMedia({ audio: true })
-    .then(stream => { streamGlobal = stream; })
-    .catch(err => { status.innerText = "❌ Sem permissão de microfone"; });
+
+navigator.mediaDevices.getUserMedia({ 
+    audio: {
+        echoCancellation: true,   // Remove o eco do ambiente
+        noiseSuppression: true,   // Diminui o chiado e o barulho de fundo
+        autoGainControl: true,    // Mantém a voz num volume firme e equilibrado
+        sampleRate: 48000         // Qualidade estúdio de alta definição
+    } 
+})
+.then(stream => { streamGlobal = stream; })
+.catch(err => { status.innerText = "❌ Sem permissão de microfone"; });
 
 // FUNÇÃO QUE CAPTURA OS BLOCOS AUTOMÁTICOS
 function capturarBlocoDeAudio() {
     if (!streamGlobal || !estaGravando) return;
 
-    const recorder = new MediaRecorder(streamGlobal, { mimeType: 'audio/webm' });
     
+    const recorder = new MediaRecorder(streamGlobal, { 
+    mimeType: 'audio/webm;codecs=opus', // Codec profissional de áudio cristalino
+    audioBitsPerSecond: 128000          // Aumenta a definição dos blocos de som
+});
+
     recorder.ondataavailable = (event) => {
         if (event.data.size > 0 && socket.readyState === WebSocket.OPEN) {
             socket.send(event.data);
