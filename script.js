@@ -99,6 +99,10 @@ function pararTransmissao(e) {
 btn.addEventListener("touchstart", iniciarTransmissao);
 btn.addEventListener("touchend", pararTransmissao);
 
+// NOVA LINHA: Impede que o navegador cancele o toque se o dedo mexer de leve
+btn.addEventListener("touchmove", (e) => e.preventDefault(), { passive: false });
+
+
 // Eventos para Computador (Clique do Mouse)
 btn.addEventListener("mousedown", iniciarTransmissao);
 btn.addEventListener("mouseup", pararTransmissao);
