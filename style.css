@@ -1,14 +1,26 @@
-body{
-    background:#111;
-    color:white;
-    text-align:center;
-    font-family:Arial;
-    padding-top:80px;
+body {
+    background: #111;
+    color: white;
+    text-align: center;
+    font-family: Arial;
+    padding-top: 80px;
 }
 
-#btn{
-    width:220px;
-    height:220px;
-    border-radius:50%;
-    font-size:30px;
+#btn {
+    width: 220px;
+    height: 220px;
+    border-radius: 50%;
+    font-size: 30px;
+    
+    /* Previne que o celular tente selecionar ou arrastar o botão */
+    -webkit-touch-callout: none; /* iOS Safari: desativa o menu de segurar */
+    -webkit-user-select: none;   /* Safari */
+    -khtml-user-select: none;     /* Navegadores antigos */
+    -moz-user-select: none;       /* Firefox */
+    -ms-user-select: none;        /* Internet Explorer/Edge */
+    user-select: none;            /* Padrão */
+    
+    /* Evita o efeito de "touch-flicker" ou realce azul ao segurar no Android */
+    -webkit-tap-highlight-color: transparent;
+    touch-action: none;           /* Desativa zoom e rolagem ao interagir com o botão */
 }
