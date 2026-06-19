@@ -1,3 +1,4 @@
+
 const status = document.getElementById("status");
 const btn = document.getElementById("btn");
 
@@ -27,7 +28,7 @@ socket.onclose = () => {
     status.innerText = "🔴 Desconectado";
 };
 
-// 2. RECEBER ÁUDIO EM TEMPO REAL (Tratamento corrigido para celulares)
+// 2. RECEBER ÁUDIO EM TEMPO REAL (Tratamento profissional para celulares)
 socket.onmessage = async (event) => {
     if (event.data instanceof Blob) {
         try {
@@ -41,10 +42,10 @@ socket.onmessage = async (event) => {
                 source.buffer = audioBuffer;
                 source.connect(audioContext.destination);
                 source.start(0);
-            }, (erro) => console.log("Aguardando fluxo completo de áudio..."));
+            }, (erro) => console.log("Processando áudio..."));
             
         } catch (e) {
-            console.error("Erro ao reproduzir pedaço de áudio:", e);
+            console.error("Erro ao reproduzir áudio:", e);
         }
     }
 };
@@ -65,44 +66,29 @@ navigator.mediaDevices.getUserMedia({ audio: true })
         status.innerText = "❌ Sem permissão de microfone";
     });
 
-// 4. MODO WALKIE-TALKIE: SEGURE PARA FALAR, SOLTE PARA PARAR
-// (Funciona perfeitamente em computadores e telas de toque de celular)
-
-function iniciarTransmissao(e) {
-    e.preventDefault();
-    ligarSistemaDeAudio(); // Destrava o som do celular ao tocar no botão
+// 4. CONTROLAR O BOTÃO FALAR (Modo Clique para Ligar / Clique para Desligar)
+function alternarTransmissao() {
+    ligarSistemaDeAudio(); // Destrava o som do celular ao interagir
 
     if (!mediaRecorder) {
-        alert("Aguardando permissão do microfone...");
+        alert("O microfone ainda não foi carregado ou permitido.");
         return;
     }
 
     if (!estaGravando) {
-        mediaRecorder.start(200); // Envia blocos a cada 200ms
+        // Inicia a gravação enviando pedaços reais a cada 200ms
+        mediaRecorder.start(200); 
         estaGravando = true;
         btn.innerText = "TRANSMITINDO...";
-        btn.style.backgroundColor = "#ff3333";
-    }
-}
-
-function pararTransmissao(e) {
-    e.preventDefault();
-    if (mediaRecorder && estaGravando) {
+        btn.style.backgroundColor = "#ff3333"; // Deixa o botão vermelho
+    } else {
+        // Para a transmissão
         mediaRecorder.stop();
         estaGravando = false;
         btn.innerText = "FALAR";
-        btn.style.backgroundColor = "";
+        btn.style.backgroundColor = ""; // Volta à cor original
     }
 }
 
-// Eventos para Celular (Toque na tela)
-btn.addEventListener("touchstart", iniciarTransmissao);
-btn.addEventListener("touchend", pararTransmissao);
-
-// NOVA LINHA: Impede que o navegador cancele o toque se o dedo mexer de leve
-btn.addEventListener("touchmove", (e) => e.preventDefault(), { passive: false });
-
-
-// Eventos para Computador (Clique do Mouse)
-btn.addEventListener("mousedown", iniciarTransmissao);
-btn.addEventListener("mouseup", pararTransmissao);
+// Usamos apenas o clique padrão que funciona perfeitamente em qualquer celular e PC
+btn.addEventListener("click", alternarTransmissao);
