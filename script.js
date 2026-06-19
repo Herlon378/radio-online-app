@@ -1,5 +1,7 @@
+
 const status = document.getElementById("status");
 const btn = document.getElementById("btn");
+const listaOnline = document.getElementById("lista-online");
 
 // Conexão com o seu servidor no Render
 const socket = new WebSocket("wss://radio-online-server.onrender.com");
@@ -9,6 +11,7 @@ let estaGravando = false;
 let audioContext;
 let intervaloGravacao;
 let streamGlobal;
+let totalConectados = 1; // Começa contando com você mesmo
 
 function ligarSistemaDeAudio() {
     if (!audioContext) {
@@ -19,11 +22,41 @@ function ligarSistemaDeAudio() {
     }
 }
 
-socket.onopen = () => { status.innerText = "🟢 Conectado e Pronto"; };
-socket.onclose = () => { status.innerText = "🔴 Desconectado"; };
+socket.onopen = () => { 
+    status.innerText = "🟢 Conectado e Pronto"; 
+    listaOnline.innerText = "👥 1 dispositivo online (Você)";
+    
+    // Avisa o servidor que você entrou para atualizar os outros
+    setTimeout(() => {
+        if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ acao: "ping_presenca" }));
+        }
+    }, 1000);
+};
 
-// RECEBER E TOCAR O ÁUDIO
+socket.onclose = () => { 
+    status.innerText = "🔴 Desconectado"; 
+    listaOnline.innerText = "👥 Desconectado do servidor";
+};
+
+// RECEBER E TOCAR O ÁUDIO OU SINAL DE PRESENÇA
 socket.onmessage = async (event) => {
+    // Se receber texto (verificação de quem está online)
+    if (typeof event.data === "string") {
+        try {
+            const dados = JSON.parse(event.data);
+            if (dados.acao === "ping_presenca") {
+                // Outro celular entrou! Atualiza a lista e responde para ele saber que você existe
+                listaOnline.innerText = "👥 2 dispositivos online";
+                socket.send(JSON.stringify({ acao: "resposta_presenca" }));
+            } else if (dados.acao === "resposta_presenca") {
+                listaOnline.innerText = "👥 2 dispositivos online";
+            }
+        } catch (e) { }
+        return;
+    }
+
+    // Se receber o bloco de áudio bruto
     if (event.data instanceof Blob) {
         try {
             ligarSistemaDeAudio();
@@ -42,14 +75,13 @@ socket.onmessage = async (event) => {
     }
 };
 
-// CONFIGURAR MICROFONE
-
+// CONFIGURAR MICROFONE COM FILTROS CRISTALINOS
 navigator.mediaDevices.getUserMedia({ 
     audio: {
-        echoCancellation: true,   // Remove o eco do ambiente
-        noiseSuppression: true,   // Diminui o chiado e o barulho de fundo
-        autoGainControl: true,    // Mantém a voz num volume firme e equilibrado
-        sampleRate: 48000         // Qualidade estúdio de alta definição
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        sampleRate: 48000
     } 
 })
 .then(stream => { streamGlobal = stream; })
@@ -59,12 +91,12 @@ navigator.mediaDevices.getUserMedia({
 function capturarBlocoDeAudio() {
     if (!streamGlobal || !estaGravando) return;
 
-    
+    // Formato profissional de alta definição
     const recorder = new MediaRecorder(streamGlobal, { 
-    mimeType: 'audio/webm;codecs=opus', // Codec profissional de áudio cristalino
-    audioBitsPerSecond: 128000          // Aumenta a definição dos blocos de som
-});
-
+        mimeType: 'audio/webm;codecs=opus',
+        audioBitsPerSecond: 128000 
+    });
+    
     recorder.ondataavailable = (event) => {
         if (event.data.size > 0 && socket.readyState === WebSocket.OPEN) {
             socket.send(event.data);
@@ -76,7 +108,7 @@ function capturarBlocoDeAudio() {
         if (recorder.state !== "inactive") {
             recorder.stop();
         }
-    }, 800); // 800ms garante áudio limpo sem emendas muito curtas
+    }, 800); 
 }
 
 // BOTÃO FALAR (Clique liga / Clique desliga)
