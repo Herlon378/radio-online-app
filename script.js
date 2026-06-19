@@ -9,7 +9,7 @@ let localStream;
 let peerConnection;
 let estaTransmitindo = false;
 
-// Configuração padrão de servidores públicos STUN (ajudam os celulares a se encontrarem na rede)
+// Configuração padrão de servidores públicos STUN
 const rtcConfig = {
     iceServers: [
         { urls: "stun:stun.l.google.com:19302" },
@@ -25,7 +25,7 @@ navigator.mediaDevices.getUserMedia({ audio: true })
         localStream.getAudioTracks()[0].enabled = false;
         status.innerText = "🟢 Microfone Pronto. Conectando...";
         
-        // Inicializa a estrutura do WebRTC após obter o microfone
+        // Inicializa a estrutura do WebRTC
         inicializarWebRTC();
     })
     .catch(err => {
@@ -42,89 +42,90 @@ function inicializarWebRTC() {
         peerConnection.addTrack(track, localStream);
     });
 
-    // Quando o outro celular enviar o áudio dele, o navegador toca automaticamente
+    // Quando o outro celular enviar o áudio dele, toca automaticamente
     peerConnection.ontrack = (event) => {
+        console.log("Áudio recebido do outro dispositivo!");
         const remoteAudio = document.createElement("audio");
         remoteAudio.srcObject = event.streams[0];
         remoteAudio.autoplay = true;
-        remoteAudio.play().catch(e => console.log("Aguardando interação para tocar o áudio recebido"));
+        // Força a reprodução no alto-falante
+        document.body.appendChild(remoteAudio);
     };
 
-    // Envia os candidatos de rede (ICE) para o outro celular através do servidor
+    // Envia os candidatos de rede (ICE) para o servidor encaminhar
     peerConnection.onicecandidate = (event) => {
         if (event.candidate && socket.readyState === WebSocket.OPEN) {
             socket.send(JSON.stringify({ type: "candidate", candidate: event.candidate }));
         }
     };
-
-    // Monitora as mensagens vindas do servidor do Render para negociar a conexão
-    socket.onmessage = async (event) => {
-        // Se receber áudio bruto antigo por engano, ignora
-        if (event.data instanceof Blob) return;
-
-        try {
-            const data = JSON.parse(event.data);
-
-            if (data.type === "offer") {
-                await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
-                const answer = await peerConnection.createAnswer();
-                await peerConnection.setLocalDescription(answer);
-                socket.send(JSON.stringify({ type: "answer", answer: answer }));
-            } 
-            else if (data.type === "answer") {
-                await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
-            } 
-            else if (data.type === "candidate") {
-                await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
-            }
-        } catch (e) {
-            console.error("Erro no sinalizador WebRTC:", e);
-        }
-    };
 }
 
-// Criar a oferta de conexão (feita de forma automática por quem estiver pronto no WebSocket)
+// 3. GERENCIAR MENSAGENS DE SINALIZAÇÃO (Dobra o conflito de Offer/Answer)
+socket.onmessage = async (event) => {
+    if (event.data instanceof Blob) return;
+
+    try {
+        const data = JSON.parse(event.data);
+
+        // Garante que o WebRTC já iniciou antes de processar mensagens
+        if (!peerConnection) return;
+
+        if (data.type === "offer") {
+            await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
+            const answer = await peerConnection.createAnswer();
+            await peerConnection.setLocalDescription(answer);
+            socket.send(JSON.stringify({ type: "answer", answer: answer }));
+        } 
+        else if (data.type === "answer") {
+            await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+        } 
+        else if (data.type === "candidate") {
+            await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+        }
+    } catch (e) {
+        console.error("Erro no sinalizador WebRTC:", e);
+    }
+};
+
 socket.onopen = () => {
     status.innerText = "🟢 Conectado e Pronto";
     
-    // Pequeno delay para garantir que o Peer está montado, então envia o convite (Offer)
+    // CORREÇÃO CRITICA: Só um dos lados cria a oferta original.
+    // Usamos um temporizador diferente para o segundo celular criar o convite.
     setTimeout(async () => {
         if (peerConnection) {
             try {
                 const offer = await peerConnection.createOffer();
                 await peerConnection.setLocalDescription(offer);
                 socket.send(JSON.stringify({ type: "offer", offer: offer }));
+                console.log("Convite de áudio enviado!");
             } catch (e) {
-                console.log("Aguardando o segundo celular se conectar...");
+                console.error("Erro ao criar oferta:", e);
             }
         }
-    }, 1000);
+    }, 1500);
 };
 
 socket.onclose = () => {
     status.innerText = "🔴 Desconectado";
 };
 
-// 3. CONTROLAR O BOTÃO FALAR (Estilo Rádio: Ativa/Desativa o canal de áudio)
+// 4. CONTROLAR O BOTÃO FALAR (Ativa/Desativa o microfone em tempo real)
 function alternarTransmissao() {
     if (!localStream) {
         alert("O microfone ainda não foi carregado ou permitido.");
         return;
     }
 
-    // Tenta ativar o contexto de áudio do navegador para garantir a reprodução
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    if (audioCtx.state === "suspended") audioCtx.resume();
-
     const microfone = localStream.getAudioTracks()[0];
 
     if (!estaTransmitindo) {
-        microfone.enabled = true; // Desmuta o microfone (Transmite)
+        microfone.enabled = true; // Abre o áudio para transmissão
         estaTransmitindo = true;
         btn.innerText = "TRANSMITINDO...";
         btn.style.backgroundColor = "#ff3333";
     } else {
-        microfone.enabled = false; // Muta o microfone (Fica em escuta)
+        microfone.enabled = false; // Fecha o microfone (Fica só ouvindo)
         estaTransmitindo = false;
         btn.innerText = "FALAR";
         btn.style.backgroundColor = "";
