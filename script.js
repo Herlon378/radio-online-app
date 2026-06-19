@@ -1,4 +1,3 @@
-
 const status = document.getElementById("status");
 const btn = document.getElementById("btn");
 const listaOnline = document.getElementById("lista-online");
@@ -11,7 +10,6 @@ let estaGravando = false;
 let audioContext;
 let intervaloGravacao;
 let streamGlobal;
-let totalConectados = 1; // Começa contando com você mesmo
 
 function ligarSistemaDeAudio() {
     if (!audioContext) {
@@ -24,14 +22,6 @@ function ligarSistemaDeAudio() {
 
 socket.onopen = () => { 
     status.innerText = "🟢 Conectado e Pronto"; 
-    listaOnline.innerText = "👥 1 dispositivo online (Você)";
-    
-    // Avisa o servidor que você entrou para atualizar os outros
-    setTimeout(() => {
-        if (socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify({ acao: "ping_presenca" }));
-        }
-    }, 1000);
 };
 
 socket.onclose = () => { 
@@ -39,18 +29,18 @@ socket.onclose = () => {
     listaOnline.innerText = "👥 Desconectado do servidor";
 };
 
-// RECEBER E TOCAR O ÁUDIO OU SINAL DE PRESENÇA
+// RECEBER E TOCAR O ÁUDIO OU ATUALIZAR CONTADOR
 socket.onmessage = async (event) => {
-    // Se receber texto (verificação de quem está online)
+    // CORREÇÃO: Lê a contagem real enviada pelo servidor
     if (typeof event.data === "string") {
         try {
             const dados = JSON.parse(event.data);
-            if (dados.acao === "ping_presenca") {
-                // Outro celular entrou! Atualiza a lista e responde para ele saber que você existe
-                listaOnline.innerText = "👥 2 dispositivos online";
-                socket.send(JSON.stringify({ acao: "resposta_presenca" }));
-            } else if (dados.acao === "resposta_presenca") {
-                listaOnline.innerText = "👥 2 dispositivos online";
+            if (dados.acao === "atualizar_contagem") {
+                if (dados.total === 1) {
+                    listaOnline.innerText = "👥 1 dispositivo online (Você)";
+                } else {
+                    listaOnline.innerText = `👥 ${dados.total} dispositivos online`;
+                }
             }
         } catch (e) { }
         return;
