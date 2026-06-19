@@ -1,132 +1,91 @@
-
 const status = document.getElementById("status");
 const btn = document.getElementById("btn");
 
-// Conexão com o seu servidor no Render (Sinalizador)
+// Conexão com o seu servidor no Render
 const socket = new WebSocket("wss://radio-online-server.onrender.com");
 
-let localStream;
-let peerConnection;
-let estaTransmitindo = false;
+let mediaRecorder;
+let estaGravando = false;
+let audioContext;
+let intervaloGravacao;
+let streamGlobal;
 
-// Configuração padrão de servidores públicos STUN
-const rtcConfig = {
-    iceServers: [
-        { urls: "stun:stun.l.google.com:19302" },
-        { urls: "stun:stun1.l.google.com:19302" }
-    ]
-};
-
-// 1. SOLICITAR MICROFONE LOGO AO ENTRAR
-navigator.mediaDevices.getUserMedia({ audio: true })
-    .then(stream => {
-        localStream = stream;
-        // Começa com o microfone mutado (modo rádio escuta)
-        localStream.getAudioTracks()[0].enabled = false;
-        status.innerText = "🟢 Microfone Pronto. Conectando...";
-        
-        // Inicializa a estrutura do WebRTC
-        inicializarWebRTC();
-    })
-    .catch(err => {
-        console.error("Erro ao acessar o microfone:", err);
-        status.innerText = "❌ Sem permissão de microfone";
-    });
-
-// 2. CONFIGURAR A CONEXÃO WEBRTC
-function inicializarWebRTC() {
-    peerConnection = new RTCPeerConnection(rtcConfig);
-
-    // Adiciona o nosso microfone na conexão
-    localStream.getTracks().forEach(track => {
-        peerConnection.addTrack(track, localStream);
-    });
-
-    // Quando o outro celular enviar o áudio dele, toca automaticamente
-    peerConnection.ontrack = (event) => {
-        console.log("Áudio recebido do outro dispositivo!");
-        const remoteAudio = document.createElement("audio");
-        remoteAudio.srcObject = event.streams[0];
-        remoteAudio.autoplay = true;
-        // Força a reprodução no alto-falante
-        document.body.appendChild(remoteAudio);
-    };
-
-    // Envia os candidatos de rede (ICE) para o servidor encaminhar
-    peerConnection.onicecandidate = (event) => {
-        if (event.candidate && socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify({ type: "candidate", candidate: event.candidate }));
-        }
-    };
+function ligarSistemaDeAudio() {
+    if (!audioContext) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioContext.state === "suspended") {
+        audioContext.resume();
+    }
 }
 
-// 3. GERENCIAR MENSAGENS DE SINALIZAÇÃO (Dobra o conflito de Offer/Answer)
+socket.onopen = () => { status.innerText = "🟢 Conectado e Pronto"; };
+socket.onclose = () => { status.innerText = "🔴 Desconectado"; };
+
+// RECEBER E TOCAR O ÁUDIO
 socket.onmessage = async (event) => {
-    if (event.data instanceof Blob) return;
-
-    try {
-        const data = JSON.parse(event.data);
-
-        // Garante que o WebRTC já iniciou antes de processar mensagens
-        if (!peerConnection) return;
-
-        if (data.type === "offer") {
-            await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
-            const answer = await peerConnection.createAnswer();
-            await peerConnection.setLocalDescription(answer);
-            socket.send(JSON.stringify({ type: "answer", answer: answer }));
-        } 
-        else if (data.type === "answer") {
-            await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
-        } 
-        else if (data.type === "candidate") {
-            await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+    if (event.data instanceof Blob) {
+        try {
+            ligarSistemaDeAudio();
+            const arrayBuffer = await event.data.arrayBuffer();
+            
+            audioContext.decodeAudioData(arrayBuffer, (audioBuffer) => {
+                const source = audioContext.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(audioContext.destination);
+                source.start(0);
+            }, (erro) => console.log("Processando bloco..."));
+            
+        } catch (e) {
+            console.error("Erro ao tocar:", e);
         }
-    } catch (e) {
-        console.error("Erro no sinalizador WebRTC:", e);
     }
 };
 
-socket.onopen = () => {
-    status.innerText = "🟢 Conectado e Pronto";
+// CONFIGURAR MICROFONE
+navigator.mediaDevices.getUserMedia({ audio: true })
+    .then(stream => { streamGlobal = stream; })
+    .catch(err => { status.innerText = "❌ Sem permissão de microfone"; });
+
+// FUNÇÃO QUE CAPTURA OS BLOCOS AUTOMÁTICOS
+function capturarBlocoDeAudio() {
+    if (!streamGlobal || !estaGravando) return;
+
+    const recorder = new MediaRecorder(streamGlobal, { mimeType: 'audio/webm' });
     
-    // CORREÇÃO CRITICA: Só um dos lados cria a oferta original.
-    // Usamos um temporizador diferente para o segundo celular criar o convite.
-    setTimeout(async () => {
-        if (peerConnection) {
-            try {
-                const offer = await peerConnection.createOffer();
-                await peerConnection.setLocalDescription(offer);
-                socket.send(JSON.stringify({ type: "offer", offer: offer }));
-                console.log("Convite de áudio enviado!");
-            } catch (e) {
-                console.error("Erro ao criar oferta:", e);
-            }
+    recorder.ondataavailable = (event) => {
+        if (event.data.size > 0 && socket.readyState === WebSocket.OPEN) {
+            socket.send(event.data);
         }
-    }, 1500);
-};
+    };
 
-socket.onclose = () => {
-    status.innerText = "🔴 Desconectado";
-};
+    recorder.start();
+    setTimeout(() => {
+        if (recorder.state !== "inactive") {
+            recorder.stop();
+        }
+    }, 800); // 800ms garante áudio limpo sem emendas muito curtas
+}
 
-// 4. CONTROLAR O BOTÃO FALAR (Ativa/Desativa o microfone em tempo real)
+// BOTÃO FALAR (Clique liga / Clique desliga)
 function alternarTransmissao() {
-    if (!localStream) {
-        alert("O microfone ainda não foi carregado ou permitido.");
+    ligarSistemaDeAudio();
+
+    if (!streamGlobal) {
+        alert("Microfone não disponível.");
         return;
     }
 
-    const microfone = localStream.getAudioTracks()[0];
-
-    if (!estaTransmitindo) {
-        microfone.enabled = true; // Abre o áudio para transmissão
-        estaTransmitindo = true;
+    if (!estaGravando) {
+        estaGravando = true;
         btn.innerText = "TRANSMITINDO...";
         btn.style.backgroundColor = "#ff3333";
+
+        capturarBlocoDeAudio();
+        intervaloGravacao = setInterval(capturarBlocoDeAudio, 850);
     } else {
-        microfone.enabled = false; // Fecha o microfone (Fica só ouvindo)
-        estaTransmitindo = false;
+        estaGravando = false;
+        clearInterval(intervaloGravacao);
         btn.innerText = "FALAR";
         btn.style.backgroundColor = "";
     }
